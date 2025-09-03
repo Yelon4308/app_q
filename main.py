@@ -88,10 +88,19 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
                 is_geographical = data.get("is_geographical", False)
                 lat = data.get("lat")
                 lon = data.get("lon")
+                x = data.get("x", 0)
+                y = data.get("y", 0)
+                
+                # Если lat/lon отсутствуют, но x/y находятся в диапазоне географических координат
+                if (lat is None or lon is None) and (-90 <= x <= 90) and (-180 <= y <= 180):
+                    print(f"Конвертируем x,y в lat,lon: x={x}, y={y}")
+                    lat = x
+                    lon = y
+                    is_geographical = True
                 
                 drawing_command = DrawingCommand(
-                    x=data.get("x", 0),
-                    y=data.get("y", 0),
+                    x=x,
+                    y=y,
                     lat=lat,
                     lon=lon,
                     is_geographical=is_geographical,
