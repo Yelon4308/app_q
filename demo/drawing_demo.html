@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drawing Sync Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .control-group {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+        
+        canvas {
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            cursor: crosshair;
+            background: white;
+        }
+        
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            text-align: center;
+        }
+        
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .users-info {
+            background: #e2e3e5;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        input[type="color"] {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        input[type="range"] {
+            width: 100px;
+        }
+        
+        select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Drawing Sync Demo</h1>
+            <p>Демонстрация синхронизации рисования в реальном времени</p>
+        </div>
+        
+        <div id="status" class="status disconnected">
+            Отключен от сервера
+        </div>
+        
+        <div id="users-info" class="users-info">
+            Пользователей в комнате: 0
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label>Комната:</label>
+                <input type="text" id="roomInput" value="demo_room" placeholder="Название комнаты">
+                <button id="connectBtn" class="btn-primary">Подключиться</button>
+                <button id="disconnectBtn" class="btn-danger" disabled>Отключиться</button>
+            </div>
+            
+            <div class="control-group">
+                <label>Цвет:</label>
+                <input type="color" id="colorPicker" value="#000000">
+            </div>
+            
+            <div class="control-group">
+                <label>Размер:</label>
+                <input type="range" id="sizePicker" min="1" max="20" value="5">
+                <span id="sizeValue">5</span>
+            </div>
+            
+            <div class="control-group">
+                <label>Инструмент:</label>
+                <select id="toolPicker">
+                    <option value="brush">Кисть</option>
+                    <option value="eraser">Ластик</option>
+                    <option value="line">Линия</option>
+                </select>
+            </div>
+            
+            <button id="clearBtn" class="btn-danger">Очистить</button>
+        </div>
+        
+        <canvas id="canvas" width="800" height="600"></canvas>
+        
+        <div style="margin-top: 20px;">
+            <h3>Инструкция:</h3>
+            <ol>
+                <li>Введите название комнаты и нажмите "Подключиться"</li>
+                <li>Выберите цвет, размер кисти и инструмент</li>
+                <li>Рисуйте на холсте мышью</li>
+                <li>Откройте эту страницу в другой вкладке для тестирования синхронизации</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        class DrawingSyncClient {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.socket = null;
+                this.isDrawing = false;
+                this.isConnected = false;
+                this.roomId = 'demo_room';
+                
+                this.initializeCanvas();
+                this.setupEventListeners();
+            }
+            
+            initializeCanvas() {
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+            }
+            
+            setupEventListeners() {
+                // Подключение/отключение
+                document.getElementById('connectBtn').addEventListener('click', () => this.connect());
+                document.getElementById('disconnectBtn').addEventListener('click', () => this.disconnect());
+                
+                // Управление размером кисти
+                document.getElementById('sizePicker').addEventListener('input', (e) => {
+                    document.getElementById('sizeValue').textContent = e.target.value;
+                });
+                
+                // Очистка холста
+                document.getElementById('clearBtn').addEventListener('click', () => this.clearCanvas());
+                
+                // Рисование мышью
+                this.canvas.addEventListener('mousedown', (e) => this.startDrawing(e));
+                this.canvas.addEventListener('mousemove', (e) => this.draw(e));
+                this.canvas.addEventListener('mouseup', () => this.stopDrawing());
+                this.canvas.addEventListener('mouseout', () => this.stopDrawing());
+                
+                // Рисование на сенсорных устройствах
+                this.canvas.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousedown', {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY
+                    });
+                    this.canvas.dispatchEvent(mouseEvent);
+                });
+                
+                this.canvas.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const mouseEvent = new MouseEvent('mousemove', {
+                        clientX: touch.clientX,
+                        clientY: touch.clientY
+                    });
+                    this.canvas.dispatchEvent(mouseEvent);
+                });
+                
+                this.canvas.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    const mouseEvent = new MouseEvent('mouseup', {});
+                    this.canvas.dispatchEvent(mouseEvent);
+                });
+            }
+            
+            connect() {
+                this.roomId = document.getElementById('roomInput').value || 'demo_room';
+                const wsUrl = `ws://127.0.0.1:8000/ws/${this.roomId}`;
+                
+                try {
+                    this.socket = new WebSocket(wsUrl);
+                    
+                    this.socket.onopen = () => {
+                        this.isConnected = true;
+                        this.updateStatus('Подключен к комнате: ' + this.roomId, 'connected');
+                        document.getElementById('connectBtn').disabled = true;
+                        document.getElementById('disconnectBtn').disabled = false;
+                    };
+                    
+                    this.socket.onclose = () => {
+                        this.isConnected = false;
+                        this.updateStatus('Отключен от сервера', 'disconnected');
+                        document.getElementById('connectBtn').disabled = false;
+                        document.getElementById('disconnectBtn').disabled = true;
+                    };
+                    
+                    this.socket.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.updateStatus('Ошибка подключения', 'disconnected');
+                    };
+                    
+                    this.socket.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+                        this.handleMessage(data);
+                    };
+                    
+                } catch (error) {
+                    console.error('Connection error:', error);
+                    this.updateStatus('Ошибка подключения', 'disconnected');
+                }
+            }
+            
+            disconnect() {
+                if (this.socket) {
+                    this.socket.close();
+                }
+            }
+            
+            updateStatus(message, type) {
+                const statusElement = document.getElementById('status');
+                statusElement.textContent = message;
+                statusElement.className = `status ${type}`;
+            }
+            
+            updateUsersInfo(count) {
+                document.getElementById('users-info').textContent = `Пользователей в комнате: ${count}`;
+            }
+            
+            handleMessage(data) {
+                switch (data.type) {
+                    case 'drawing':
+                        this.applyDrawingCommand(data.data);
+                        break;
+                    case 'clear':
+                        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                        break;
+                    case 'user_joined':
+                    case 'user_left':
+                        this.updateUsersInfo(data.total_users);
+                        break;
+                }
+            }
+            
+            startDrawing(e) {
+                this.isDrawing = true;
+                const pos = this.getMousePos(e);
+                this.sendDrawingCommand(pos.x, pos.y, 'down');
+            }
+            
+            draw(e) {
+                if (!this.isDrawing) return;
+                
+                const pos = this.getMousePos(e);
+                this.sendDrawingCommand(pos.x, pos.y, 'draw');
+                this.drawOnCanvas(pos.x, pos.y, 'draw');
+            }
+            
+            stopDrawing() {
+                if (!this.isDrawing) return;
+                this.isDrawing = false;
+                this.sendDrawingCommand(0, 0, 'up');
+            }
+            
+            getMousePos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+            
+            sendDrawingCommand(x, y, action) {
+                if (!this.isConnected) return;
+                
+                const command = {
+                    type: 'drawing',
+                    x: x,
+                    y: y,
+                    action: action,
+                    color: document.getElementById('colorPicker').value,
+                    size: parseInt(document.getElementById('sizePicker').value),
+                    tool: document.getElementById('toolPicker').value
+                };
+                
+                this.socket.send(JSON.stringify(command));
+            }
+            
+            applyDrawingCommand(data) {
+                this.drawOnCanvas(data.x, data.y, data.action, data.color, data.size, data.tool);
+            }
+            
+            drawOnCanvas(x, y, action, color = null, size = null, tool = null) {
+                if (!color) color = document.getElementById('colorPicker').value;
+                if (!size) size = parseInt(document.getElementById('sizePicker').value);
+                if (!tool) tool = document.getElementById('toolPicker').value;
+                
+                this.ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
+                this.ctx.strokeStyle = tool === 'eraser' ? 'rgba(0,0,0,1)' : color;
+                this.ctx.lineWidth = size;
+                
+                if (action === 'down') {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, y);
+                } else if (action === 'draw') {
+                    this.ctx.lineTo(x, y);
+                    this.ctx.stroke();
+                }
+            }
+            
+            clearCanvas() {
+                if (!this.isConnected) {
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    return;
+                }
+                
+                this.socket.send(JSON.stringify({ type: 'clear' }));
+            }
+        }
+        
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', () => {
+            new DrawingSyncClient();
+        });
+    </script>
+</body>
+</html>
